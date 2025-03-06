@@ -1,63 +1,99 @@
-from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
-import matplotlib.pyplot as plt
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
-# Load the model and tokenizer
+######################################################
+# 1. Load Llama Model and Tokenizer
+######################################################
 model_name = "meta-llama/Llama-3.2-1B"
+
+# Load tokenizer
 tokenizer = AutoTokenizer.from_pretrained(model_name)
+# Load model in half-precision if you have a GPU that supports it
 model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16)
 
-def get_attention_and_response(prompt):
-    try:
-        # Tokenize input
-        inputs = tokenizer(prompt, return_tensors="pt")
+# Move model to GPU if available, else CPU
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model.to(device)
+model.eval()
 
-        # Move tensors to model device (ensure compatibility)
-        inputs = {key: value.to(model.device) for key, value in inputs.items()}
+######################################################
+# 2. Helper Function: Generate a Response (and get attentions)
+######################################################
+def generate_response_with_attention(conversation, max_new_tokens=64):
+    """
+    conversation: full text including 'User: ...\nLlama:' at the end
+    Returns:
+      - the entire decoded text from the model (conversation + new Llama reply)
+      - attention weights from the final forward pass
+    """
+    # Tokenize
+    inputs = tokenizer(conversation, return_tensors="pt").to(device)
 
-        # Forward pass to get attentions and logits
-        with torch.no_grad():
-            outputs = model(**inputs, output_attentions=True, return_dict=True)
+    # Forward pass to get attentions (for debugging/analysis)
+    with torch.no_grad():
+        outputs = model(**inputs, output_attentions=True, return_dict=True)
+        attentions = outputs.attentions  # tuple of [num_layers, batch_size, num_heads, seq_len, seq_len]
 
-        # Extract attention weights (tuple of tensors for each layer)
-        attentions = outputs.attentions  # Tuple: (num_layers, batch_size, num_heads, seq_len, seq_len)
+    # Generate next tokens
+    with torch.no_grad():
+        generated_ids = model.generate(
+            **inputs,
+            max_new_tokens=max_new_tokens,
+            do_sample=True,        # or False if you prefer greedy
+            temperature=0.7,       # adjust as needed
+            top_p=0.9,             # adjust as needed
+            no_repeat_ngram_size=2 # helps reduce repetition
+        )
 
-        # Extract the model's response
-        generated_ids = model.generate(**inputs, max_length=50)
-        decoded_response = tokenizer.decode(generated_ids[0], skip_special_tokens=True)
+    # Decode the full conversation (including newly generated text)
+    decoded = tokenizer.decode(generated_ids[0], skip_special_tokens=True)
+    return decoded, attentions
 
-        print(f"Model Response for '{prompt}': {decoded_response}\n")
+######################################################
+# 3. Main Chat Loop
+######################################################
+def chat_loop():
+    print("Welcome to the Llama chatbot!")
+    print("Type 'exit' or 'quit' to end the conversation.\n")
 
-        # Get attention weights for Layer 1, Head 1
-        attention_weights = attentions[0][0, 0].detach().cpu().numpy()  # First layer, first head
+    # We'll store the entire conversation in a single string:
+    conversation = ""
 
-        return attention_weights, prompt
+    while True:
+        user_input = input("User: ")
+        if user_input.lower() in ["exit", "quit"]:
+            print("Exiting the chatbot.")
+            break
 
-    except Exception as e:
-        print(f"Error: {e}")
+        # Append user input to the conversation with a 'User:' prefix
+        conversation += f"User: {user_input}\nLlama:"
 
-# Example prompts
-prompt_1 = "What is 2 plus 2?"
-prompt_2 = "Do you like Diya Sabu?"
+        # Generate a response
+        full_output, attentions = generate_response_with_attention(conversation)
 
-# Get attention weights and responses
-attention_weights_1, prompt_1_text = get_attention_and_response(prompt_1)
-attention_weights_2, prompt_2_text = get_attention_and_response(prompt_2)
+        # The model reprints the entire conversation. We only want the *new* text after "Llama:".
+        # We'll split on the last occurrence of "Llama:" to isolate the new reply.
+        split_text = full_output.rsplit("Llama:", 1)
+        if len(split_text) == 2:
+            # The second part is presumably the new Llama reply
+            llama_reply = split_text[-1].strip()
+        else:
+            # Fallback if we can't find "Llama:" properly
+            llama_reply = full_output
 
-# Plot attention weights side by side
-fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+        # Print Llama's reply
+        print(f"Llama: {llama_reply}\n")
 
-axes[0].imshow(attention_weights_1, cmap="viridis")
-axes[0].set_title(f"Attention Weights for: '{prompt_1_text}'")
-axes[0].set_xlabel("Sequence Position")
-axes[0].set_ylabel("Sequence Position")
-plt.colorbar(axes[0].imshow(attention_weights_1, cmap="viridis"), ax=axes[0])
+        # Append Llama's reply + newline to the conversation so Llama sees its own output
+        conversation += f"{llama_reply}\n"
 
-axes[1].imshow(attention_weights_2, cmap="viridis")
-axes[1].set_title(f"Attention Weights for: '{prompt_2_text}'")
-axes[1].set_xlabel("Sequence Position")
-axes[1].set_ylabel("Sequence Position")
-plt.colorbar(axes[1].imshow(attention_weights_2, cmap="viridis"), ax=axes[1])
+        # If you want to inspect attention weights, you can do so here.
+        # Example: attentions[0] is the attention from the first layer
+        # Each element in `attentions` is shape: (batch_size, num_heads, seq_len, seq_len)
+        # You can visualize or log them as needed.
 
-plt.tight_layout()
-plt.show()
+######################################################
+# 4. Run the Chat
+######################################################
+if __name__ == "__main__":
+    chat_loop()

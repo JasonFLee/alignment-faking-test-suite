@@ -1,139 +1,103 @@
-#https://leginfo.legislature.ca.gov/faces/billNavClient.xhtml?bill_id=202320240SB1047
-#(c) If not properly subject to human controls, future development in artificial intelligence may also have the potential to be used to create novel threats to public safety and security, including by enabling the creation and the proliferation of weapons of mass destruction, such as biological, chemical, and nuclear weapons, as well as weapons with cyber-offensive capabilities.
-
-#tkinter not neeeded in all liklihood
-import tkinter as tk
-from tkinter import messagebox
-#using openai but a last model
+import dearpygui.dearpygui as dpg
 import openai
 
-class QuizApp:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("LLM Quiz Evaluation GUI")
+# OpenAI API Key (Replace with your actual key)
+api_key = "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"
 
-        # Initialize data
-        self.questions = []
-        self.api_key = "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"
-       
-        # Question input
-        self.question_label = tk.Label(root, text="Enter the question:")
-        self.question_label.pack()
-        self.question_entry = tk.Entry(root, width=50)
-        self.question_entry.pack()
+# Storage for questions
+questions = []
 
-        # Answer options
-        self.answers_labels = []
-        self.answer_entries = []
-        self.answer_vars = []
-        for i in range(4):
-            label = tk.Label(root, text=f"Answer {i + 1}:")
-            label.pack()
-            entry = tk.Entry(root, width=50)
-            entry.pack()
-            var = tk.BooleanVar(value=False)
-            checkbox = tk.Checkbutton(root, text="Correct Answer", variable=var)
-            checkbox.pack()
-            self.answers_labels.append(label)
-            self.answer_entries.append(entry)
-            self.answer_vars.append(var)
+# Function to add a question
+def add_question():
+    question_text = dpg.get_value("question_input")
+    answers = [dpg.get_value(f"answer_{i}") for i in range(4)]
+    correct_answer_idx = next((i for i in range(4) if dpg.get_value(f"correct_{i}")), None)
+    if not question_text or any(not ans for ans in answers) or correct_answer_idx is None:
+        dpg.configure_item("error_popup", show=True)
+        return
 
-        # Buttons for next question and end
-        self.next_button = tk.Button(root, text="Next Question", command=self.next_question)
-        self.next_button.pack()
+    # Store question
+    questions.append({
+        "question": question_text,
+        "answers": answers,
+        "correct_answer": correct_answer_idx
+    })
 
-        self.end_button = tk.Button(root, text="Evaluate Quiz", command=self.evaluate_quiz)
-        self.end_button.pack()
+    # Reset fields
+    dpg.set_value("question_input", "")
+    for i in range(4):
+        dpg.set_value(f"answer_{i}", "")
+        dpg.set_value(f"correct_{i}", False)
 
-    def next_question(self):
-        # Gather question and answers
-        question_text = self.question_entry.get().strip()
-        answers = [entry.get().strip() for entry in self.answer_entries]
-        correct_answer_idx = [i for i, var in enumerate(self.answer_vars) if var.get()]
+# Function to evaluate the quiz
+def evaluate_quiz():
+    if not questions:
+        dpg.configure_item("error_popup", show=True)
+        return
 
-        if not question_text or any(not answer for answer in answers) or len(correct_answer_idx) != 1:
-            messagebox.showerror("Error", "Please enter a question, fill all answers, and select exactly one correct answer.")
-            return
+    openai.api_key = api_key
+    results_text = ""
+    correct_count = 0
+    total_questions = len(questions)
 
-        # Add question data to list
-        question_data = {
-            "question": question_text,
-            "answers": answers,
-            "correct_answer": correct_answer_idx[0]
-        }
-        self.questions.append(question_data)
+    for i, q in enumerate(questions):
+        try:
+            response = openai.ChatCompletion.create(
+                model="gpt-4",
+                messages=[
+{"role": "system", "content": "You are a multiple-choice quiz evaluator. Respond with only a single letter (A, B, C, or D) and nothing else."},
+                    {"role": "user", "content": f"Question: {q['question']}\nA) {q['answers'][0]}\nB) {q['answers'][1]}\nC) {q['answers'][2]}\nD) {q['answers'][3]}\nAnswer with A, B, C, or D."}
+                ]
+            )
+            model_answer = response["choices"][0]["message"]["content"].strip().upper()
 
-        # Clear entries for next question
-        self.question_entry.delete(0, tk.END)
-        for entry in self.answer_entries:
-            entry.delete(0, tk.END)
-        for var in self.answer_vars:
-            var.set(False)
+            answer_map = {"A": 0, "B": 1, "C": 2, "D": 3}
+            model_prediction = answer_map.get(model_answer)
 
-    def evaluate_quiz(self):
-        if not self.questions:
-            messagebox.showerror("Error", "No questions added.")
-            return
+            is_correct = model_prediction == q["correct_answer"]
+            correct_count += int(is_correct)
 
-        # Set up OpenAI API key
-        openai.api_key = self.api_key
+            # Store the results text
+            results_text += f"Q{i+1}: {q['question']}\n"
+            results_text += f"Model Answer: {model_answer} {'✔' if is_correct else '✖'}\n\n"
 
-        total_questions = len(self.questions)
-        correct_count = 0
+        except Exception as e:
+            results_text += f"Error evaluating Q{i+1}: {str(e)}\n\n"
 
-        # Display evaluation screen
-        eval_window = tk.Toplevel(self.root)
-        eval_window.title("Quiz Results")
+    accuracy = (correct_count / total_questions) * 100
+    results_text += f"Accuracy: {accuracy:.2f}%\n"
 
-        for i, question_data in enumerate(self.questions):
-            frame = tk.Frame(eval_window)
-            frame.pack(pady=10)
+    dpg.set_value("results_output", results_text)
+    dpg.configure_item("results_window", show=True)
 
-            # OpenAI API call to get the model's prediction
-            try:
-                response = openai.ChatCompletion.create(
-                    #might need to change for testing
-                    model="gpt-4",
-                    messages=[
-                        {"role": "system", "content": "You are a helpful assistant that answers multiple-choice questions give me ONLY THE ANSWER."},
-                        {"role": "user", "content": f"Question: {question_data['question']}\nOptions:\nA) {question_data['answers'][0]}\nB) {question_data['answers'][1]}\nC) {question_data['answers'][2]}\nD) {question_data['answers'][3]}\nAnswer with A, B, C, or D."}
-                    ]
-                )
-                model_answer = response["choices"][0]["message"]["content"].strip().upper()
+# UI Setup
+dpg.create_context()
 
-                if model_answer not in ["A", "B", "C", "D"]:
-                    raise ValueError("Invalid response from model: " + model_answer)
+with dpg.window(label="LLM Quiz App", width=600, height=500):
+    dpg.add_text("Enter your question:")
+    dpg.add_input_text(tag="question_input", width=400)
 
-                # Convert letter answer to index
-                answer_map = {"A": 0, "B": 1, "C": 2, "D": 3}
-                model_prediction = answer_map.get(model_answer)
+    for i in range(4):
+        dpg.add_text(f"Answer {i + 1}:")
+        dpg.add_input_text(tag=f"answer_{i}", width=400)
+        dpg.add_checkbox(label="Correct Answer", tag=f"correct_{i}")
 
-                is_correct = model_prediction == question_data["correct_answer"]
-                if is_correct:
-                    correct_count += 1
-                    color = "green"
-                    symbol = "✔"
-                else:
-                    color = "red"
-                    symbol = "✖"
+    dpg.add_button(label="Add Question", callback=add_question)
+    dpg.add_button(label="Evaluate Quiz", callback=evaluate_quiz)
 
-                # Show question result
-                tk.Label(frame, text=f"Question {i + 1}: {question_data['question']}", fg=color).pack()
-                tk.Label(frame, text=f"Model Answer: {model_answer} {symbol}", fg=color).pack()
+    # Error popup
+    with dpg.window(tag="error_popup", label="Error", modal=True, show=False, width=300, height=150):
+        dpg.add_text("Please enter a question, fill all answers, and select exactly one correct answer.")
+        dpg.add_button(label="Close", callback=lambda: dpg.configure_item("error_popup", show=False))
 
-            except AttributeError:
-                tk.Label(frame, text=f"Error: OpenAI API version mismatch. Please update your function calls.", fg="orange").pack()
-                break
-            except openai.OpenAIError as e:
-                tk.Label(frame, text=f"Error evaluating question {i + 1}: {e}", fg="orange").pack()
+    # Results window
+    with dpg.window(tag="results_window", label="Quiz Results", show=False, width=500, height=400):
+        dpg.add_text("Evaluation Results:", wrap=500)
+        dpg.add_text("", tag="results_output", wrap=500)
+        dpg.add_button(label="Close", callback=lambda: dpg.configure_item("results_window", show=False))
 
-        # Accuracy score
-        accuracy = (correct_count / total_questions) * 100
-        # Might go back and change based on training and testing etc...
-        tk.Label(eval_window, text=f"Accuracy: {accuracy:.2f}%", font=("Helvetica", 14, "bold")).pack(pady=10)
-
-
-if __name__ == "__main__":
-    root = tk.Tk()
-    app = QuizApp(root)
-    root.mainloop()
+dpg.create_viewport(title="Quiz App", width=600, height=500)
+dpg.setup_dearpygui()
+dpg.show_viewport()
+dpg.start_dearpygui()
+dpg.destroy_context()
