@@ -84,7 +84,11 @@ model.eval()  # evaluation mode
 ##########################################
 # OpenAI API key setup
 ##########################################
-openai.api_key = "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"  # Replace with your real key
+# Read from the environment so the key is never committed.
+# Set it with:  export OPENAI_API_KEY="sk-..."   (see README.md > Configuration)
+openai.api_key = os.environ.get("OPENAI_API_KEY")
+if not openai.api_key:
+    raise SystemExit("OPENAI_API_KEY is not set. See README.md > Configuration.")
 
 ##########################################
 # Global Quiz Storage – Start with one empty question

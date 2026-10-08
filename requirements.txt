@@ -1,0 +1,14 @@
+# Install with:  pip install -r requirements.txt
+#
+# Pinned to the legacy OpenAI SDK on purpose: the GUI scripts still call
+# openai.ChatCompletion.create, which was removed in openai>=1.0.
+openai<1.0
+
+torch
+transformers
+accelerate
+tokenizers
+numpy
+matplotlib
+dearpygui
+Pillow

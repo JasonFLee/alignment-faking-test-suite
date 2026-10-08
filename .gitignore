@@ -1,0 +1,39 @@
+# --- Secrets -------------------------------------------------------------
+.env
+.env.*
+*.pem
+
+# --- Virtual environments ------------------------------------------------
+venv/
+venv*/
+.venv/
+env/
+
+# --- Model weights and tokenizer output (large, regenerable) -------------
+ModelA/
+ModelB/
+modelA/
+modelB/
+fine_tuned_model/
+models/
+*.safetensors
+*.bin
+*.h5
+*.gguf
+
+# --- Python --------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# --- Run outputs ---------------------------------------------------------
+*.png
+*.log
+intermediate_details.txt
+
+# --- OS / editor ---------------------------------------------------------
+.DS_Store
+.idea/
+.vscode/
